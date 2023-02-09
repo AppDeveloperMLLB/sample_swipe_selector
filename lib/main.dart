@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 void main() {
   runApp(const MyApp());
@@ -16,27 +17,27 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         primarySwatch: Colors.blue,
       ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      home: const ProviderScope(
+        child: MyHomePage(title: 'Flutter Demo Home Page'),
+      ),
+      //home: const MyWidget(),
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
+class MyHomePage extends ConsumerStatefulWidget {
   const MyHomePage({super.key, required this.title});
 
   final String title;
 
   @override
-  State<MyHomePage> createState() => _MyHomePageState();
+  ConsumerState<MyHomePage> createState() => _MyHomePageState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  bool _isSelecting = false;
-
+class _MyHomePageState extends ConsumerState<MyHomePage> {
   void onSelectingToggleButton() {
-    setState(() {
-      _isSelecting = !_isSelecting;
-    });
+    final isSelecting = ref.read(isSelectedProvider);
+    ref.read(isSelectedProvider.notifier).state = !isSelecting;
   }
 
   @override
@@ -50,44 +51,62 @@ class _MyHomePageState extends State<MyHomePage> {
             width: 64,
             child: IconButton(
               onPressed: onSelectingToggleButton,
-              icon: Text(
-                _isSelecting ? "Cancel" : "Select",
-                style: const TextStyle(color: Colors.white),
-              ),
+              icon: Consumer(builder: (context, ref, child) {
+                final isSelected = ref.watch(isSelectedProvider);
+                return Text(
+                  isSelected ? "Cancel" : "Select",
+                  style: const TextStyle(color: Colors.white),
+                );
+              }),
             ),
           ),
         ],
       ),
-      body: Center(
-        child: GestureDetector(
-          onPanStart: (detail) {
-            _judgeHit(context, detail.globalPosition);
-          },
-          onPanUpdate: (detail) {
-            _judgeHit(context, detail.globalPosition);
-          },
-          child: GridView.builder(
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              mainAxisSpacing: 8,
-              crossAxisSpacing: 8,
-              crossAxisCount: 3,
-            ),
-            itemCount: 30,
-            padding: const EdgeInsets.all(8),
-            itemBuilder: (context, index) {
-              return Item(
-                index: index,
-              );
-            },
-            shrinkWrap: true,
-          ),
+      body: const Center(
+        child: ItemGridView(),
+      ),
+    );
+  }
+}
+
+class ItemGridView extends ConsumerWidget {
+  const ItemGridView({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final idList = ref.watch(dataListProvider
+        .select((value) => value.map((e) => e.data.id).toList()));
+    return GestureDetector(
+      onPanStart: (detail) {
+        _judgeHit(ref, context, detail.globalPosition);
+      },
+      onPanUpdate: (detail) {
+        _judgeHit(ref, context, detail.globalPosition);
+      },
+      child: GridView.builder(
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          mainAxisSpacing: 8,
+          crossAxisSpacing: 8,
+          crossAxisCount: 3,
         ),
+        itemCount: idList.length,
+        padding: const EdgeInsets.all(8),
+        itemBuilder: (context, index) {
+          final id = idList[index];
+          return Item(
+            id: id,
+            onTouch: () {
+              ref.read(dataListProvider.notifier).setIsSelected(index);
+            },
+          );
+        },
+        shrinkWrap: true,
       ),
     );
   }
 
-  void _judgeHit(BuildContext context, Offset globalPosition) {
-    if (!_isSelecting) {
+  void _judgeHit(WidgetRef ref, BuildContext context, Offset globalPosition) {
+    if (!ref.read(isSelectedProvider)) {
       return;
     }
 
@@ -110,27 +129,28 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 }
 
-class Item extends StatefulWidget {
-  final int index;
-  const Item({super.key, required this.index});
+class Item extends ConsumerWidget {
+  final int id;
+  final VoidCallback? onTouch;
+  const Item({super.key, required this.id, this.onTouch});
 
   @override
-  State<Item> createState() => _ItemState();
-}
-
-class _ItemState extends State<Item> {
-  bool isSelected = false;
-
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isSelected = ref.watch(dataListProvider.select((value) {
+      final index = value.indexWhere((element) => element.data.id == id);
+      return value[index].isSelected;
+    }));
     return TouchDetector(
+      onTouch: () {
+        onTouch?.call();
+      },
       child: Stack(
         children: [
           Container(
             color: Colors.amber,
             child: Center(
                 child: Text(
-              "$widget.index",
+              "$id",
               style: Theme.of(context).textTheme.bodyLarge!,
             )),
           ),
@@ -163,7 +183,9 @@ class TouchDetector extends SingleChildRenderObjectWidget {
 
   @override
   RenderObject createRenderObject(BuildContext context) {
-    return TouchDetectorRenderBox();
+    final renderObject = TouchDetectorRenderBox();
+    renderObject.onTouch = onTouch;
+    return renderObject;
   }
 
   @override
@@ -179,8 +201,77 @@ class TouchDetector extends SingleChildRenderObjectWidget {
 // 描画処理用のRenderBox
 // SingleChildRenderObjectWidgetを使うのに必要
 // StatefullWidgetにStateのクラスが必要なのと同じ感じだと思う
-class TouchDetectorRenderBox extends RenderBox {
+class TouchDetectorRenderBox extends RenderProxyBox {
   // RenderBoxのhitTestメソッドを使い、
   // タッチされていればタッチした時の処理を行うために定義しておく
   VoidCallback? onTouch;
 }
+
+class ItemData {
+  final int id;
+  final String name;
+
+  ItemData({
+    required this.id,
+    required this.name,
+  });
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ItemData &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          name == other.name;
+
+  @override
+  int get hashCode => id.hashCode;
+}
+
+class DataForSelector {
+  final ItemData data;
+  bool _isSelected = false;
+  bool get isSelected => _isSelected;
+
+  DataForSelector({required this.data});
+
+  void setIsSelected(bool value) {
+    _isSelected = value;
+  }
+}
+
+class DataNotifier extends StateNotifier<List<DataForSelector>> {
+  DataNotifier(List<DataForSelector> initialData) : super(initialData);
+  void setIsSelected(int index) {
+    final previousData = state[index];
+    final newData = DataForSelector(data: previousData.data);
+    newData.setIsSelected(!previousData.isSelected);
+    state = [...state]..[index] = newData;
+  }
+}
+
+final dataListProvider =
+    StateNotifierProvider<DataNotifier, List<DataForSelector>>(
+  (ref) => DataNotifier(
+    [
+      DataForSelector(data: ItemData(id: 0, name: "000")),
+      DataForSelector(data: ItemData(id: 1, name: "001")),
+      DataForSelector(data: ItemData(id: 2, name: "002")),
+      DataForSelector(data: ItemData(id: 3, name: "003")),
+      DataForSelector(data: ItemData(id: 4, name: "004")),
+      DataForSelector(data: ItemData(id: 5, name: "005")),
+      DataForSelector(data: ItemData(id: 6, name: "006")),
+      DataForSelector(data: ItemData(id: 7, name: "007")),
+      DataForSelector(data: ItemData(id: 8, name: "008")),
+      DataForSelector(data: ItemData(id: 9, name: "009")),
+      DataForSelector(data: ItemData(id: 10, name: "010")),
+      DataForSelector(data: ItemData(id: 11, name: "011")),
+      DataForSelector(data: ItemData(id: 12, name: "012")),
+      DataForSelector(data: ItemData(id: 13, name: "013")),
+      DataForSelector(data: ItemData(id: 14, name: "014")),
+      DataForSelector(data: ItemData(id: 15, name: "015")),
+    ],
+  ),
+);
+
+final isSelectedProvider = StateProvider((ref) => false);
