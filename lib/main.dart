@@ -83,8 +83,12 @@ class ItemGridView extends ConsumerWidget {
       onPanUpdate: (detail) {
         _judgeHit(ref, context, detail.globalPosition);
       },
+      onLongPressMoveUpdate: (detail) {
+        _judgeHit(ref, context, detail.globalPosition);
+      },
       onPanEnd: (detail) {
         ref.read(isChangingToSelected.notifier).state = null;
+        tapStartIndex = null;
       },
       onTapUp: (detail) {
         _onTapUp(ref, context, detail.globalPosition);
@@ -167,8 +171,22 @@ class ItemGridView extends ConsumerWidget {
             ref.read(isChangingToSelected.notifier).state = newValue;
           }
 
-          if (newValue == ref.read(isChangingToSelected)) {
-            target.onTouch?.call();
+          tapStartIndex ??= index;
+
+          if (tapStartIndex! <= index) {
+            for (int i = tapStartIndex!; i <= index; i++) {
+              final data = ref.read(dataListProvider)[i];
+              if (data.isSelected != ref.read(isChangingToSelected)) {
+                ref.read(dataListProvider.notifier).toggleIsSelected(i);
+              }
+            }
+          } else {
+            for (int i = tapStartIndex!; i >= index; i--) {
+              final data = ref.read(dataListProvider)[i];
+              if (data.isSelected != ref.read(isChangingToSelected)) {
+                ref.read(dataListProvider.notifier).toggleIsSelected(i);
+              }
+            }
           }
         }
       }
@@ -359,3 +377,5 @@ final isSelectedProvider = StateProvider((ref) => false);
 /// 他のアイテムも未選択 → 選択への変更に固定しないと、
 /// 選択状態の変更が繰り返されるため。
 final isChangingToSelected = StateProvider<bool?>((ref) => null);
+
+int? tapStartIndex;
