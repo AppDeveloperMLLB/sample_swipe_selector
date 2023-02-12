@@ -83,6 +83,12 @@ class ItemGridView extends ConsumerWidget {
       onPanUpdate: (detail) {
         _judgeHit(ref, context, detail.globalPosition);
       },
+      onPanEnd: (detail) {
+        ref.read(isChangingToSelected.notifier).state = null;
+      },
+      onTapUp: (detail) {
+        _onTapUp(ref, context, detail.globalPosition);
+      },
       child: GridView.builder(
         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
           mainAxisSpacing: 8,
@@ -96,7 +102,7 @@ class ItemGridView extends ConsumerWidget {
           return Item(
             id: id,
             onTouch: () {
-              ref.read(dataListProvider.notifier).setIsSelected(index);
+              ref.read(dataListProvider.notifier).toggleIsSelected(index);
             },
           );
         },
@@ -105,7 +111,11 @@ class ItemGridView extends ConsumerWidget {
     );
   }
 
-  void _judgeHit(WidgetRef ref, BuildContext context, Offset globalPosition) {
+  void _onTapUp(
+    WidgetRef ref,
+    BuildContext context,
+    Offset globalPosition,
+  ) {
     if (!ref.read(isSelectedProvider)) {
       return;
     }
@@ -122,7 +132,44 @@ class ItemGridView extends ConsumerWidget {
       for (final hit in result.path) {
         final target = hit.target;
         if (target is TouchDetectorRenderBox) {
-          target.onTouch?.call();
+          final index = target.getIndex?.call() ?? 0;
+          ref.read(dataListProvider.notifier).toggleIsSelected(index);
+        }
+      }
+    }
+  }
+
+  void _judgeHit(
+    WidgetRef ref,
+    BuildContext context,
+    Offset globalPosition,
+  ) {
+    if (!ref.read(isSelectedProvider)) {
+      return;
+    }
+
+    final RenderBox? box = context.findRenderObject() as RenderBox?;
+    final result = BoxHitTestResult();
+    var local = box?.globalToLocal(globalPosition);
+
+    if (box == null || local == null) {
+      return;
+    }
+
+    if (box.hitTest(result, position: local)) {
+      for (final hit in result.path) {
+        final target = hit.target;
+        if (target is TouchDetectorRenderBox) {
+          final index = target.getIndex?.call() ?? 0;
+          final touchedData = ref.read(dataListProvider)[index];
+          final newValue = !touchedData.isSelected;
+          if (ref.read(isChangingToSelected) == null) {
+            ref.read(isChangingToSelected.notifier).state = newValue;
+          }
+
+          if (newValue == ref.read(isChangingToSelected)) {
+            target.onTouch?.call();
+          }
         }
       }
     }
@@ -132,7 +179,12 @@ class ItemGridView extends ConsumerWidget {
 class Item extends ConsumerWidget {
   final int id;
   final VoidCallback? onTouch;
-  const Item({super.key, required this.id, this.onTouch});
+
+  const Item({
+    super.key,
+    required this.id,
+    this.onTouch,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -143,6 +195,17 @@ class Item extends ConsumerWidget {
     return TouchDetector(
       onTouch: () {
         onTouch?.call();
+      },
+      getIndex: () {
+        return ref
+            .read(dataListProvider)
+            .indexWhere((element) => element.data.id == id);
+      },
+      isSelected: () {
+        final data = ref
+            .read(dataListProvider)
+            .firstWhere((element) => element.data.id == id);
+        return data.isSelected;
       },
       child: Stack(
         children: [
@@ -171,11 +234,15 @@ class Item extends ConsumerWidget {
 class TouchDetector extends SingleChildRenderObjectWidget {
   /// タッチされた際のコールバック
   final VoidCallback? onTouch;
+  final int Function()? getIndex;
+  final bool Function()? isSelected;
 
   const TouchDetector({
     Key? key,
     Widget? child,
     this.onTouch,
+    this.getIndex,
+    this.isSelected,
   }) : super(
           key: key,
           child: child,
@@ -185,6 +252,8 @@ class TouchDetector extends SingleChildRenderObjectWidget {
   RenderObject createRenderObject(BuildContext context) {
     final renderObject = TouchDetectorRenderBox();
     renderObject.onTouch = onTouch;
+    renderObject.getIndex = getIndex;
+    renderObject.isSelected = isSelected;
     return renderObject;
   }
 
@@ -195,6 +264,8 @@ class TouchDetector extends SingleChildRenderObjectWidget {
   ) {
     super.updateRenderObject(context, renderObject);
     renderObject.onTouch = onTouch;
+    renderObject.getIndex = getIndex;
+    renderObject.isSelected = isSelected;
   }
 }
 
@@ -205,6 +276,8 @@ class TouchDetectorRenderBox extends RenderProxyBox {
   // RenderBoxのhitTestメソッドを使い、
   // タッチされていればタッチした時の処理を行うために定義しておく
   VoidCallback? onTouch;
+  int Function()? getIndex;
+  bool Function()? isSelected;
 }
 
 class ItemData {
@@ -242,10 +315,13 @@ class DataForSelector {
 
 class DataNotifier extends StateNotifier<List<DataForSelector>> {
   DataNotifier(List<DataForSelector> initialData) : super(initialData);
-  void setIsSelected(int index) {
+  void toggleIsSelected(int index) {
+    print("toggle");
     final previousData = state[index];
+    print("Previous isSelected : ${previousData.isSelected}");
     final newData = DataForSelector(data: previousData.data);
     newData.setIsSelected(!previousData.isSelected);
+    print("new isSelected : ${newData.isSelected}");
     state = [...state]..[index] = newData;
   }
 }
@@ -275,3 +351,11 @@ final dataListProvider =
 );
 
 final isSelectedProvider = StateProvider((ref) => false);
+
+/// 選択状態を変更中に、未選択 → 選択に変えているかを保持
+///
+/// この値は、選択状態を変え始めたタイミングで確定する。
+/// なぜこの値が必要かというと、未選択 → 選択に変え始めた場合、
+/// 他のアイテムも未選択 → 選択への変更に固定しないと、
+/// 選択状態の変更が繰り返されるため。
+final isChangingToSelected = StateProvider<bool?>((ref) => null);
