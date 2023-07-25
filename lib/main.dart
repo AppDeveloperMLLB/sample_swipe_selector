@@ -35,7 +35,8 @@ class MyHomePage extends ConsumerStatefulWidget {
 }
 
 class _MyHomePageState extends ConsumerState<MyHomePage> {
-  void onSelectingToggleButton() {
+  /// 選択状態かどうかを切り替えるトグルボタンが押されたときの処理
+  void onSelectingToggleButtonPressed() {
     final isSelecting = ref.read(isSelectedProvider);
     ref.read(isSelectedProvider.notifier).state = !isSelecting;
   }
@@ -46,11 +47,12 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
       appBar: AppBar(
         title: Text(widget.title),
         actions: [
+          // トグルボタン
           SizedBox(
             height: 64,
             width: 64,
             child: IconButton(
-              onPressed: onSelectingToggleButton,
+              onPressed: onSelectingToggleButtonPressed,
               icon: Consumer(builder: (context, ref, child) {
                 final isSelected = ref.watch(isSelectedProvider);
                 return Text(
@@ -63,6 +65,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
         ],
       ),
       body: const Center(
+        // アイテム一覧の表示
         child: ItemGridView(),
       ),
     );
@@ -334,12 +337,9 @@ class DataForSelector {
 class DataNotifier extends StateNotifier<List<DataForSelector>> {
   DataNotifier(List<DataForSelector> initialData) : super(initialData);
   void toggleIsSelected(int index) {
-    print("toggle");
     final previousData = state[index];
-    print("Previous isSelected : ${previousData.isSelected}");
     final newData = DataForSelector(data: previousData.data);
     newData.setIsSelected(!previousData.isSelected);
-    print("new isSelected : ${newData.isSelected}");
     state = [...state]..[index] = newData;
   }
 }
